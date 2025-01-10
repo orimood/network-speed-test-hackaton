@@ -3,6 +3,8 @@ import struct
 import time
 import threading
 import random
+import os
+
 
 
 
@@ -58,6 +60,10 @@ class Colors:
 
 def listen_for_offers():
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        if os.name == 'nt':  # For Windows
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        else:  # For Linux/macOS
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         sock.bind(('', UDP_PORT))
         print(f"{Colors.BOLD}{Colors.OKBLUE}🔎 Client started, listening for offers...{Colors.ENDC}")
         while True:
@@ -66,6 +72,7 @@ def listen_for_offers():
             if magic_cookie == MAGIC_COOKIE and msg_type == OFFER_MSG_TYPE:
                 print(f"{Colors.BOLD}{Colors.OKGREEN}✅ Received offer from {addr[0]} on TCP port {tcp_port}{Colors.ENDC}")
                 return addr[0], tcp_port
+
 
 def tcp_download(server_ip, tcp_port, file_size, conn_id, stats):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
