@@ -39,4 +39,6 @@ def start_client():
     tcp_download(server_ip, tcp_port, file_size)
 
 if __name__ == "__main__":
+    print("ohayo sekai good morning world")
     start_client()
+
