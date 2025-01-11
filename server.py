@@ -3,6 +3,7 @@ import threading
 import struct
 import time
 import platform
+import os
 
 # ANSI color codes for terminal output
 class Colors:
@@ -15,17 +16,20 @@ class Colors:
     BOLD = '\033[1m'
     ENDC = '\033[0m'
 
+
 # Configuration
-MAGIC_COOKIE = 0xabcddcba
-OFFER_MSG_TYPE = 0x2
-REQUEST_MSG_TYPE = 0x3
-PAYLOAD_MSG_TYPE = 0x4
-UDP_PORT = 13117
-TCP_PORT = 20000
-BUFFER_SIZE = 1024
-BROADCAST_INTERVAL = 1  # seconds
-PAYLOAD_SIZE = 1024  # Size of each UDP payload segment
-TCP_BACKLOG = 5  # Maximum number of queued connections
+CONFIG = {
+    "MAGIC_COOKIE": int(os.getenv("MAGIC_COOKIE", "0xabcddcba"), 16),
+    "OFFER_MSG_TYPE": int(os.getenv("OFFER_MSG_TYPE", 2)),
+    "REQUEST_MSG_TYPE": int(os.getenv("REQUEST_MSG_TYPE", 3)),
+    "PAYLOAD_MSG_TYPE": int(os.getenv("PAYLOAD_MSG_TYPE", 4)),
+    "UDP_PORT": int(os.getenv("UDP_PORT", 13117)),
+    "TCP_PORT": int(os.getenv("TCP_PORT", 20000)),
+    "BUFFER_SIZE": int(os.getenv("BUFFER_SIZE", 1024)),
+    "BROADCAST_INTERVAL": float(os.getenv("BROADCAST_INTERVAL", 1.0)),
+    "PAYLOAD_SIZE": int(os.getenv("PAYLOAD_SIZE", 1024)),
+    "TCP_BACKLOG": int(os.getenv("TCP_BACKLOG", 5)),
+}
 
 # Global control for server threads
 server_running = threading.Event()
@@ -67,17 +71,19 @@ def udp_broadcast():
     try:
         with create_udp_socket() as sock:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            offer_msg = struct.pack('!IbHH', MAGIC_COOKIE, OFFER_MSG_TYPE, UDP_PORT, TCP_PORT)
-            print(Colors.OKBLUE + "UDP broadcast started." + Colors.ENDC)
-
-            broadcast_logged = False
+            offer_msg = struct.pack(
+                '!IbHH',
+                CONFIG["MAGIC_COOKIE"],
+                CONFIG["OFFER_MSG_TYPE"],
+                CONFIG["UDP_PORT"],
+                CONFIG["TCP_PORT"],
+            )
+            print(Colors.OKBLUE + f"UDP broadcast started at {time.strftime('%Y-%m-%d %H:%M:%S')}" + Colors.ENDC)
 
             while server_running.is_set():
-                sock.sendto(offer_msg, ('<broadcast>', UDP_PORT))
-                if not broadcast_logged:
-                    print(Colors.OKGREEN + "Broadcast sent." + Colors.ENDC)
-                    broadcast_logged = True
-                time.sleep(BROADCAST_INTERVAL)
+                sock.sendto(offer_msg, ('<broadcast>', CONFIG["UDP_PORT"]))
+                print(Colors.OKGREEN + f"Broadcast sent at {time.strftime('%H:%M:%S')}." + Colors.ENDC)
+                time.sleep(CONFIG["BROADCAST_INTERVAL"])
     except Exception as e:
         print(Colors.FAIL + f"Error in UDP broadcast: {e}" + Colors.ENDC)
 
@@ -90,13 +96,13 @@ def handle_udp_connection():
 
     try:
         with create_udp_socket() as udp_sock:
-            udp_sock.bind(('', UDP_PORT))
-            print(Colors.OKBLUE + f"Server started, listening on UDP port {UDP_PORT}" + Colors.ENDC)
+            udp_sock.bind(('', CONFIG["UDP_PORT"]))
+            print(Colors.OKBLUE + f"Server started, listening on UDP port {CONFIG['UDP_PORT']}" + Colors.ENDC)
 
             while server_running.is_set():
                 udp_sock.settimeout(1)
                 try:
-                    data, addr = udp_sock.recvfrom(BUFFER_SIZE)
+                    data, addr = udp_sock.recvfrom(CONFIG["BUFFER_SIZE"])
                     ip = addr[0]
 
                     # Validate packet
@@ -107,7 +113,7 @@ def handle_udp_connection():
                         continue
 
                     cookie, msg_type = struct.unpack('!Ib', data[:5])
-                    if cookie != MAGIC_COOKIE or msg_type != REQUEST_MSG_TYPE:
+                    if cookie != CONFIG["MAGIC_COOKIE"] or msg_type != CONFIG["REQUEST_MSG_TYPE"]:
                         if ip not in logged_ips:
                             logged_ips[ip] = True
                             print(Colors.FAIL + f"Unexpected UDP packet from {ip}" + Colors.ENDC)
@@ -120,10 +126,17 @@ def handle_udp_connection():
                     file_size = struct.unpack('!Q', data[5:13])[0]
                     print(Colors.OKCYAN + f"UDP request from {addr}, file size: {file_size} bytes" + Colors.ENDC)
 
-                    total_segments = (file_size + PAYLOAD_SIZE - 1) // PAYLOAD_SIZE
+                    total_segments = (file_size + CONFIG["PAYLOAD_SIZE"] - 1) // CONFIG["PAYLOAD_SIZE"]
                     for segment in range(total_segments):
-                        payload = struct.pack('!IbQQ', MAGIC_COOKIE, PAYLOAD_MSG_TYPE, total_segments, segment)
-                        udp_sock.sendto(payload + b'1' * (PAYLOAD_SIZE - 21), addr)
+                        header = struct.pack(
+                            '!IbQQ',
+                            CONFIG["MAGIC_COOKIE"],
+                            CONFIG["PAYLOAD_MSG_TYPE"],
+                            total_segments,
+                            segment,
+                        )
+                        payload_data = os.urandom(CONFIG["PAYLOAD_SIZE"] - len(header))
+                        udp_sock.sendto(header + payload_data, addr)
                         time.sleep(0.001)
                 except socket.timeout:
                     continue
@@ -133,12 +146,12 @@ def handle_udp_connection():
 
 def handle_tcp_connection(conn, addr):
     """
-    Handles a single TCP connection. Receives the requested file size and sends the data.
+    Handles a single TCP connection. Receives the requested file size and sends the data in chunks.
     """
     global total_tcp_connections, total_data_transferred
     try:
         print(Colors.WARNING + f"New TCP connection from {addr}" + Colors.ENDC)
-        file_size_data = conn.recv(BUFFER_SIZE)
+        file_size_data = conn.recv(CONFIG["BUFFER_SIZE"])
         if not file_size_data:
             print(Colors.FAIL + f"Connection from {addr} closed unexpectedly." + Colors.ENDC)
             return
@@ -146,7 +159,11 @@ def handle_tcp_connection(conn, addr):
         file_size = int(file_size_data.decode().strip())
         print(Colors.OKCYAN + f"File size requested by {addr}: {file_size} bytes" + Colors.ENDC)
 
-        conn.sendall(b'1' * file_size)
+        # Send data in chunks
+        chunk_size = 1024 * 1024  # 1 MB chunks
+        for i in range(0, file_size, chunk_size):
+            conn.sendall(b'1' * min(chunk_size, file_size - i))
+
         total_tcp_connections += 1
         total_data_transferred += file_size
         print(Colors.OKGREEN + f"Sent {file_size} bytes to {addr}." + Colors.ENDC)
@@ -162,9 +179,9 @@ def tcp_server():
     """
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_sock:
-            server_sock.bind(('', TCP_PORT))
-            server_sock.listen(TCP_BACKLOG)
-            print(Colors.OKBLUE + f"Server started, listening on TCP port {TCP_PORT}" + Colors.ENDC)
+            server_sock.bind(('', CONFIG["TCP_PORT"]))
+            server_sock.listen(CONFIG["TCP_BACKLOG"])
+            print(Colors.OKBLUE + f"Server started, listening on TCP port {CONFIG['TCP_PORT']}" + Colors.ENDC)
 
             while server_running.is_set():
                 server_sock.settimeout(1)
@@ -185,7 +202,7 @@ def start_server():
     try:
         server_running.set()
         server_ip = get_server_ip()
-        print(Colors.HEADER + f"Server started, listening on IP address {server_ip}" + Colors.ENDC)
+        print(Colors.HEADER + f"Server started at {server_ip} on {time.strftime('%Y-%m-%d %H:%M:%S')}" + Colors.ENDC)
 
         threading.Thread(target=udp_broadcast, daemon=True, name="UDPBroadcaster").start()
         threading.Thread(target=handle_udp_connection, daemon=True, name="UDPServer").start()
