@@ -81,7 +81,6 @@ def listen_for_offers():
             except Exception as e:
                 print(f"{Colors.BOLD}{Colors.FAIL}❌ Error while listening for offers: {e}{Colors.ENDC}")
 
-# Send a UDP request packet to the server
 def send_udp_request(server_ip, udp_port, file_size):
     """
     Sends a UDP request packet to the server.
@@ -94,6 +93,7 @@ def send_udp_request(server_ip, udp_port, file_size):
             print(f"{Colors.BOLD}{Colors.OKBLUE}📨 Sent UDP request to {server_ip}:{udp_port}{Colors.ENDC}")
         except Exception as e:
             print(f"{Colors.BOLD}{Colors.FAIL}❌ Error sending UDP request: {e}{Colors.ENDC}")
+
 
 # Perform TCP download
 def tcp_download(server_ip, tcp_port, file_size, conn_id, stats):
@@ -115,11 +115,12 @@ def tcp_download(server_ip, tcp_port, file_size, conn_id, stats):
             duration = end_time - start_time
             speed = received * 8 / duration if duration > 0 else 0
             stats.append((conn_id, duration, speed))
-            print(f"{Colors.BOLD}{Colors.OKCYAN}📥 TCP transfer #{conn_id} finished, total time: {duration:.2f} seconds, speed: {speed:.2f} bps{Colors.ENDC}")
+            # Removed duplicate print statement here
         except socket.error as e:
             print(f"{Colors.BOLD}{Colors.FAIL}❌ TCP connection error: {e}{Colors.ENDC}")
         except Exception as e:
             print(f"{Colors.BOLD}{Colors.FAIL}❌ Error during TCP download: {e}{Colors.ENDC}")
+
 
 # Perform UDP download
 def udp_download(server_ip, udp_port, conn_id, stats):
@@ -128,29 +129,43 @@ def udp_download(server_ip, udp_port, conn_id, stats):
     """
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp_sock:
         udp_sock.settimeout(1)
+
+        # Bind to all interfaces and an ephemeral port
+        udp_sock.bind(('', 0))
+
         try:
             start_time = time.time()
             received_packets = set()
             total_packets = 0
+            packet_count = 0
+
             while True:
                 try:
-                    data, _ = udp_sock.recvfrom(BUFFER_SIZE)
+                    data, addr = udp_sock.recvfrom(BUFFER_SIZE)
                     if len(data) >= 21:
                         magic_cookie, msg_type, total_segments, current_segment = struct.unpack('!IbQQ', data[:21])
                         if magic_cookie == MAGIC_COOKIE and msg_type == PAYLOAD_MSG_TYPE:
                             received_packets.add(current_segment)
                             total_packets = total_segments
+                            packet_count += 1
+
+                            # Log every 100 packets received
+                            if packet_count % 100 == 0:
+                                print(f"📡 Received UDP packet: Segment {current_segment + 1}/{total_segments}")
                 except socket.timeout:
-                    break
+                    break  # End download after 1 second of inactivity
+
             end_time = time.time()
             duration = end_time - start_time
             packets_received = len(received_packets)
             packet_loss = ((total_packets - packets_received) / total_packets) * 100 if total_packets > 0 else 100
             speed = packets_received * BUFFER_SIZE * 8 / duration if duration > 0 else 0
             stats.append((conn_id, duration, speed, 100 - packet_loss))
-            print(f"{Colors.BOLD}{Colors.WARNING}📡 UDP transfer #{conn_id} finished, total time: {duration:.2f} seconds, speed: {speed:.2f} bps, success rate: {100 - packet_loss:.2f}%{Colors.ENDC}")
         except Exception as e:
             print(f"{Colors.BOLD}{Colors.FAIL}❌ Error during UDP download: {e}{Colors.ENDC}")
+
+
+
 
 # Main client function
 def start_client():
@@ -172,12 +187,13 @@ def start_client():
                 tcp_threads.append(thread)
                 thread.start()
 
-            # Start UDP threads
+            # Start UDP threads and send requests
             for i in range(udp_connections):
-                send_udp_request(server_ip, udp_port, file_size)
                 thread = threading.Thread(target=udp_download, args=(server_ip, udp_port, i + 1, udp_stats))
                 udp_threads.append(thread)
                 thread.start()
+                # Ensure UDP request is sent after starting the thread
+                send_udp_request(server_ip, udp_port, file_size)
 
             # Wait for all threads to complete
             for thread in tcp_threads + udp_threads:
