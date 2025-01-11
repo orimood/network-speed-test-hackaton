@@ -14,7 +14,6 @@ UDP_PORT = 13117
 BUFFER_SIZE = 1024
 
 # ANSI color codes for terminal output
-# ANSI color codes for terminal output
 class Colors:
     # Text Colors
     HEADER = '\033[95m'
@@ -113,43 +112,45 @@ def udp_download(conn_id, file_size, stats):
 
 
 def start_client():
-    server_ip, tcp_port = listen_for_offers()
-    file_size = int(input("Enter file size in bytes: "))
-    tcp_connections = int(input("Enter number of TCP connections: "))
-    udp_connections = int(input("Enter number of UDP connections: "))
+    while True:
+        server_ip, tcp_port = listen_for_offers()
+        file_size = int(input(f"{Colors.BOLD}{Colors.YELLOW}📂 Enter file size in bytes: {Colors.ENDC}"))
+        tcp_connections = int(input(f"{Colors.BOLD}{Colors.YELLOW}🔗 Enter number of TCP connections: {Colors.ENDC}"))
+        udp_connections = int(input(f"{Colors.BOLD}{Colors.YELLOW}📡 Enter number of UDP connections: {Colors.ENDC}"))
 
-    tcp_stats = []
-    udp_stats = []
+        tcp_stats = []
+        udp_stats = []
 
-    # Start TCP downloads
-    tcp_threads = []
-    for i in range(tcp_connections):
-        thread = threading.Thread(target=tcp_download, args=(server_ip, tcp_port, file_size, i + 1, tcp_stats))
-        tcp_threads.append(thread)
-        thread.start()
+        # Start TCP downloads
+        tcp_threads = []
+        for i in range(tcp_connections):
+            thread = threading.Thread(target=tcp_download, args=(server_ip, tcp_port, file_size, i + 1, tcp_stats))
+            tcp_threads.append(thread)
+            thread.start()
 
-    # Start UDP downloads (simulated)
-    udp_threads = []
-    for i in range(udp_connections):
-        thread = threading.Thread(target=udp_download, args=(i + 1, file_size, udp_stats))
-        udp_threads.append(thread)
-        thread.start()
+        # Start UDP downloads (simulated)
+        udp_threads = []
+        for i in range(udp_connections):
+            thread = threading.Thread(target=udp_download, args=(i + 1, file_size, udp_stats))
+            udp_threads.append(thread)
+            thread.start()
 
-    # Wait for all threads to complete
-    for thread in tcp_threads + udp_threads:
-        thread.join()
+        # Wait for all threads to complete
+        for thread in tcp_threads + udp_threads:
+            thread.join()
 
-    # Print TCP statistics
-    for conn_id, duration, speed in tcp_stats:
-        print(f"{Colors.OKCYAN}  🔹 TCP #{conn_id}: Duration: {duration:.2f}s, Speed: {speed:.2f} bps{Colors.ENDC}")
+        # Print TCP statistics
+        print(f"\n{Colors.BOLD}{Colors.OKBLUE}📊 TCP Transfer Statistics:{Colors.ENDC}")
+        for conn_id, duration, speed in tcp_stats:
+            print(f"{Colors.OKCYAN}  🔹 TCP #{conn_id}: Duration: {duration:.2f}s, Speed: {speed:.2f} bps{Colors.ENDC}")
 
-    # Print UDP statistics
-    for conn_id, duration, speed, packet_loss in udp_stats:
-        status_color = Colors.OKGREEN if packet_loss < 5 else Colors.WARNING if packet_loss < 15 else Colors.FAIL
-        print(
-            f"{status_color}  🔸 UDP #{conn_id}: Duration: {duration:.2f}s, Speed: {speed:.2f} bps, Packet Loss: {packet_loss:.2f}%{Colors.ENDC}")
+        # Print UDP statistics
+        print(f"\n{Colors.BOLD}{Colors.OKBLUE}📊 UDP Transfer Statistics:{Colors.ENDC}")
+        for conn_id, duration, speed, packet_loss in udp_stats:
+            status_color = Colors.OKGREEN if packet_loss < 5 else Colors.WARNING if packet_loss < 15 else Colors.FAIL
+            print(f"{status_color}  🔸 UDP #{conn_id}: Duration: {duration:.2f}s, Speed: {speed:.2f} bps, Packet Loss: {packet_loss:.2f}%{Colors.ENDC}")
 
-    print(f"\n{Colors.BOLD}{Colors.HEADER}🎉 All transfers complete. Listening for new offers...{Colors.ENDC}")
+        print(f"\n{Colors.BOLD}{Colors.HEADER}🎉 All transfers complete. Listening for new offers...{Colors.ENDC}")
 
 
 if __name__ == "__main__":
