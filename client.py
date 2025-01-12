@@ -11,7 +11,8 @@ OFFER_MSG_TYPE = 0x2
 REQUEST_MSG_TYPE = 0x3
 PAYLOAD_MSG_TYPE = 0x4
 UDP_PORT = 13117
-BUFFER_SIZE = 1024
+BUFFER_SIZE = 4 * 1024
+
 
 # Enhanced ANSI color codes for terminal output
 class Colors:
@@ -56,6 +57,7 @@ class Colors:
     # Reset
     ENDC = '\033[0m'
 
+
 # Listen for server offers via UDP
 def listen_for_offers():
     """
@@ -74,25 +76,13 @@ def listen_for_offers():
                 if len(data) >= 9:  # Ensure packet has enough data
                     magic_cookie, msg_type, udp_port, tcp_port = struct.unpack('!IbHH', data)
                     if magic_cookie == MAGIC_COOKIE and msg_type == OFFER_MSG_TYPE:
-                        print(f"{Colors.BOLD}{Colors.OKGREEN}✅ Received offer from {addr[0]} on TCP port {tcp_port}{Colors.ENDC}")
+                        print(
+                            f"{Colors.BOLD}{Colors.OKGREEN}✅ Received offer from {addr[0]} on TCP port {tcp_port}{Colors.ENDC}")
                         return addr[0], udp_port, tcp_port
             except struct.error:
                 print(f"{Colors.BOLD}{Colors.FAIL}❌ Invalid packet received, ignoring...{Colors.ENDC}")
             except Exception as e:
                 print(f"{Colors.BOLD}{Colors.FAIL}❌ Error while listening for offers: {e}{Colors.ENDC}")
-
-def send_udp_request(server_ip, udp_port, file_size):
-    """
-    Sends a UDP request packet to the server.
-    """
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp_sock:
-        udp_sock.settimeout(1)
-        try:
-            request_packet = struct.pack('!IbQ', MAGIC_COOKIE, REQUEST_MSG_TYPE, file_size)
-            udp_sock.sendto(request_packet, (server_ip, udp_port))
-            print(f"{Colors.BOLD}{Colors.OKBLUE}📨 Sent UDP request to {server_ip}:{udp_port}{Colors.ENDC}")
-        except Exception as e:
-            print(f"{Colors.BOLD}{Colors.FAIL}❌ Error sending UDP request: {e}{Colors.ENDC}")
 
 
 # Perform TCP download
@@ -123,7 +113,7 @@ def tcp_download(server_ip, tcp_port, file_size, conn_id, stats):
 
 
 # Perform UDP download
-def udp_download(server_ip, udp_port, conn_id, stats):
+def udp_download(server_ip, udp_port, conn_id, stats, file_size):
     """
     Performs a file download over UDP and records the transfer statistics, including packet loss.
     """
@@ -132,6 +122,13 @@ def udp_download(server_ip, udp_port, conn_id, stats):
 
         # Bind to all interfaces and an ephemeral port
         udp_sock.bind(('', 0))
+
+        try:
+            request_packet = struct.pack('!IbQ', MAGIC_COOKIE, REQUEST_MSG_TYPE, file_size)
+            udp_sock.sendto(request_packet, (server_ip, udp_port))
+            print(f"{Colors.BOLD}{Colors.OKBLUE}📨 Sent UDP request to {server_ip}:{udp_port}{Colors.ENDC}")
+        except Exception as e:
+            print(f"{Colors.BOLD}{Colors.FAIL}❌ Error sending UDP request: {e}{Colors.ENDC}")
 
         try:
             start_time = time.time()
@@ -150,9 +147,15 @@ def udp_download(server_ip, udp_port, conn_id, stats):
                             packet_count += 1
 
                             # Log every 100 packets received
-                            if packet_count % 100 == 0:
+                            if packet_count % 1000 == 0:
                                 print(f"📡 Received UDP packet: Segment {current_segment + 1}/{total_segments}")
+
+                            if current_segment + 1 == total_segments:
+                                break
+                        else:
+                            print(f"📡 Received Unknown UDP packet {msg_type}")
                 except socket.timeout:
+                    print(f"📡 Received UDP timeout")
                     break  # End download after 1 second of inactivity
 
             end_time = time.time()
@@ -165,8 +168,6 @@ def udp_download(server_ip, udp_port, conn_id, stats):
             print(f"{Colors.BOLD}{Colors.FAIL}❌ Error during UDP download: {e}{Colors.ENDC}")
 
 
-
-
 # Main client function
 def start_client():
     """
@@ -176,8 +177,10 @@ def start_client():
         while True:
             server_ip, udp_port, tcp_port = listen_for_offers()
             file_size = int(input(f"{Colors.BOLD}{Colors.YELLOW}📂 Enter file size in bytes: {Colors.ENDC}"))
-            tcp_connections = int(input(f"{Colors.BOLD}{Colors.YELLOW}🔗 Enter number of TCP connections: {Colors.ENDC}"))
-            udp_connections = int(input(f"{Colors.BOLD}{Colors.YELLOW}📡 Enter number of UDP connections: {Colors.ENDC}"))
+            tcp_connections = int(
+                input(f"{Colors.BOLD}{Colors.YELLOW}🔗 Enter number of TCP connections: {Colors.ENDC}"))
+            udp_connections = int(
+                input(f"{Colors.BOLD}{Colors.YELLOW}📡 Enter number of UDP connections: {Colors.ENDC}"))
 
             tcp_stats, udp_stats, tcp_threads, udp_threads = [], [], [], []
 
@@ -189,11 +192,9 @@ def start_client():
 
             # Start UDP threads and send requests
             for i in range(udp_connections):
-                thread = threading.Thread(target=udp_download, args=(server_ip, udp_port, i + 1, udp_stats))
+                thread = threading.Thread(target=udp_download, args=(server_ip, udp_port, i + 1, udp_stats, file_size))
                 udp_threads.append(thread)
                 thread.start()
-                # Ensure UDP request is sent after starting the thread
-                send_udp_request(server_ip, udp_port, file_size)
 
             # Wait for all threads to complete
             for thread in tcp_threads + udp_threads:
@@ -201,11 +202,13 @@ def start_client():
 
             # Print statistics
             for conn_id, duration, speed in tcp_stats:
-                print(f"{Colors.OKCYAN}📥 TCP transfer #{conn_id} finished, total time: {duration:.2f} seconds, speed: {speed:.2f} bps{Colors.ENDC}")
+                print(
+                    f"{Colors.OKCYAN}📥 TCP transfer #{conn_id} finished, total time: {duration:.2f} seconds, speed: {speed:.2f} bps{Colors.ENDC}")
 
             for conn_id, duration, speed, success_rate in udp_stats:
                 status_color = Colors.OKGREEN if success_rate >= 95 else Colors.WARNING if success_rate >= 85 else Colors.FAIL
-                print(f"{status_color}📡 UDP transfer #{conn_id} finished, total time: {duration:.2f} seconds, speed: {speed:.2f} bps, success rate: {success_rate:.2f}%{Colors.ENDC}")
+                print(
+                    f"{status_color}📡 UDP transfer #{conn_id} finished, total time: {duration:.2f} seconds, speed: {speed:.2f} bps, success rate: {success_rate:.2f}%{Colors.ENDC}")
 
             print(f"{Colors.BOLD}{Colors.HEADER}🎉 All transfers complete. Listening for new offers...{Colors.ENDC}\n")
 
@@ -213,6 +216,7 @@ def start_client():
         print(f"\n\n{Colors.BOLD}{Colors.FAIL}❌ Client interrupted. Shutting down gracefully...{Colors.ENDC}")
     except Exception as e:
         print(f"{Colors.BOLD}{Colors.FAIL}❌ Unexpected error: {e}{Colors.ENDC}")
+
 
 if __name__ == "__main__":
     start_client()
