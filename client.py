@@ -210,7 +210,7 @@ def start_client():
                 print(
                     f"{status_color}📡 UDP transfer #{conn_id} finished, total time: {duration:.2f} seconds, speed: {speed:.2f} bps, success rate: {success_rate:.2f}%{Colors.ENDC}")
 
-            print(f"{Colors.BOLD}{Colors.HEADER}🎉 All transfers complete. Listening for new offers...{Colors.ENDC}\n")
+            print(f"{Colors.BOLD}{Colors.HEADER}🎉 All transfers complete, listening to offer requests...{Colors.ENDC}\n")
 
     except KeyboardInterrupt:
         print(f"\n\n{Colors.BOLD}{Colors.FAIL}❌ Client interrupted. Shutting down gracefully...{Colors.ENDC}")
