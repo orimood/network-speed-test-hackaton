@@ -4,6 +4,7 @@ import time
 import threading
 import random
 import os
+import select
 
 # Constants
 MAGIC_COOKIE = 0xabcddcba
@@ -85,7 +86,6 @@ def listen_for_offers():
                 print(f"{Colors.BOLD}{Colors.FAIL}❌ Error while listening for offers: {e}{Colors.ENDC}")
 
 
-# Perform TCP download
 def tcp_download(server_ip, tcp_port, file_size, conn_id, stats):
     """
     Performs a file download over TCP and records the transfer statistics.
@@ -94,18 +94,25 @@ def tcp_download(server_ip, tcp_port, file_size, conn_id, stats):
         try:
             sock.connect((server_ip, tcp_port))
             sock.sendall(f"{file_size}\n".encode())
+
             start_time = time.time()
             received = 0
+
             while True:
-                data = sock.recv(BUFFER_SIZE)
-                if not data:
-                    break
-                received += len(data)
+                ready_socks, _, _ = select.select([sock], [], [], 1)  # Wait up to 1 second for data
+                if ready_socks:
+                    data = sock.recv(BUFFER_SIZE)
+                    if not data:
+                        break
+                    received += len(data)
+                else:
+                    break  # No more data within timeout
+
             end_time = time.time()
             duration = end_time - start_time
             speed = received * 8 / duration if duration > 0 else 0
             stats.append((conn_id, duration, speed))
-            # Removed duplicate print statement here
+
         except socket.error as e:
             print(f"{Colors.BOLD}{Colors.FAIL}❌ TCP connection error: {e}{Colors.ENDC}")
         except Exception as e:
@@ -119,8 +126,6 @@ def udp_download(server_ip, udp_port, conn_id, stats, file_size):
     """
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp_sock:
         udp_sock.settimeout(1)
-
-        # Bind to all interfaces and an ephemeral port
         udp_sock.bind(('', 0))
 
         try:
@@ -129,34 +134,30 @@ def udp_download(server_ip, udp_port, conn_id, stats, file_size):
             print(f"{Colors.BOLD}{Colors.OKBLUE}📨 Sent UDP request to {server_ip}:{udp_port}{Colors.ENDC}")
         except Exception as e:
             print(f"{Colors.BOLD}{Colors.FAIL}❌ Error sending UDP request: {e}{Colors.ENDC}")
+            return
 
         try:
             start_time = time.time()
             received_packets = set()
             total_packets = 0
-            packet_count = 0
 
             while True:
-                try:
-                    data, addr = udp_sock.recvfrom(BUFFER_SIZE)
-                    if len(data) >= 21:
-                        magic_cookie, msg_type, total_segments, current_segment = struct.unpack('!IbQQ', data[:21])
-                        if magic_cookie == MAGIC_COOKIE and msg_type == PAYLOAD_MSG_TYPE:
-                            received_packets.add(current_segment)
-                            total_packets = total_segments
-                            packet_count += 1
+                ready_socks, _, _ = select.select([udp_sock], [], [], 1)  # Wait up to 1 second for data
+                if ready_socks:
+                    try:
+                        data, addr = udp_sock.recvfrom(BUFFER_SIZE)
+                        if len(data) >= 21:
+                            magic_cookie, msg_type, total_segments, current_segment = struct.unpack('!IbQQ', data[:21])
+                            if magic_cookie == MAGIC_COOKIE and msg_type == PAYLOAD_MSG_TYPE:
+                                received_packets.add(current_segment)
+                                total_packets = total_segments
 
-                            # Log every 100 packets received
-                            if packet_count % 1000 == 0:
-                                print(f"📡 Received UDP packet: Segment {current_segment + 1}/{total_segments}")
-
-                            if current_segment + 1 == total_segments:
-                                break
-                        else:
-                            print(f"📡 Received Unknown UDP packet {msg_type}")
-                except socket.timeout:
-                    print(f"📡 Received UDP timeout")
-                    break  # End download after 1 second of inactivity
+                                if current_segment + 1 == total_segments:
+                                    break
+                    except socket.timeout:
+                        break  # Exit after inactivity
+                else:
+                    break  # Exit after select timeout
 
             end_time = time.time()
             duration = end_time - start_time
@@ -164,6 +165,7 @@ def udp_download(server_ip, udp_port, conn_id, stats, file_size):
             packet_loss = ((total_packets - packets_received) / total_packets) * 100 if total_packets > 0 else 100
             speed = packets_received * BUFFER_SIZE * 8 / duration if duration > 0 else 0
             stats.append((conn_id, duration, speed, 100 - packet_loss))
+
         except Exception as e:
             print(f"{Colors.BOLD}{Colors.FAIL}❌ Error during UDP download: {e}{Colors.ENDC}")
 
