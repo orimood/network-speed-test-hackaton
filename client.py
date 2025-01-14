@@ -11,8 +11,10 @@ MAGIC_COOKIE = 0xabcddcba
 OFFER_MSG_TYPE = 0x2
 REQUEST_MSG_TYPE = 0x3
 PAYLOAD_MSG_TYPE = 0x4
-UDP_PORT = 13117
 BUFFER_SIZE = 4 * 1024
+
+
+
 
 
 # Enhanced ANSI color codes for terminal output
@@ -59,8 +61,24 @@ class Colors:
     ENDC = '\033[0m'
 
 
+
+def get_available_udp_port():
+    # Create a UDP socket
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        # Bind to port 0 to let the OS assign a free port
+        sock.bind(('', 0))
+        # Get the assigned port number
+        return sock.getsockname()[1]
+
+
+
+
 # Listen for server offers via UDP
 def listen_for_offers():
+    # Automatically get an available UDP port
+    UDP_PORT = 13117
+
+    print(f"📡 OS-assigned UDP port: {UDP_PORT}")
     """
     Listens for broadcast UDP offers from servers and returns the first valid offer's details.
     """
@@ -135,7 +153,6 @@ def udp_download(server_ip, udp_port, conn_id, stats, file_size):
         except Exception as e:
             print(f"{Colors.BOLD}{Colors.FAIL}❌ Error sending UDP request: {e}{Colors.ENDC}")
             return
-
         try:
             start_time = time.time()
             received_packets = set()
@@ -155,10 +172,10 @@ def udp_download(server_ip, udp_port, conn_id, stats, file_size):
                                 if current_segment + 1 == total_segments:
                                     break
                     except socket.timeout:
+                        print(f"📡 Received UDP timeout")
                         break  # Exit after inactivity
                 else:
                     break  # Exit after select timeout
-
             end_time = time.time()
             duration = end_time - start_time
             packets_received = len(received_packets)
