@@ -1,1 +1,6 @@
 # Python Standard Library used - no external dependencies required
+# This project currently does not require any external Python packages.
+# All functionalities are implemented using Python's standard library.
+
+# However, we include this file to maintain a professional project structure
+# and to easily accommodate future dependencies if needed.
