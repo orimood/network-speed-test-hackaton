@@ -136,5 +136,7 @@ See the [LICENSE](LICENSE) file for more information.
 
 ## 📧 Contact
 
-For any inquiries, please contact:  
-**Ori Mood** – [GitHub](https://github.com/orimood)
+For any inquiries, please contact:
+**Tomer Ovadya** – [E-Mail](ovadyat@post.bgu.ac.il)
+**Ori Sinvani** – [E-Mail](orisin@post.bgu.ac.il)
+
