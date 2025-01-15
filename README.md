@@ -123,16 +123,7 @@ Modify server parameters via environment variables or directly in `server.py`:
 └── LICENSE               # MIT License
 ```
 
----
 
-## 🤝 Contributing
-
-Contributions are welcome! 🚀  
-1. Fork the repository.  
-2. Create your feature branch (`git checkout -b feature-name`).  
-3. Commit your changes (`git commit -m 'Add feature'`).  
-4. Push to the branch (`git push origin feature-name`).  
-5. Open a pull request.  
 
 ---
 
