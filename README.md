@@ -137,6 +137,7 @@ See the [LICENSE](LICENSE) file for more information.
 ## 📧 Contact
 
 For any inquiries, please contact:
+
 **Tomer Ovadya** – ovadyat@post.bgu.ac.il
 
 **Ori Sinvani** – orisin@post.bgu.ac.il
